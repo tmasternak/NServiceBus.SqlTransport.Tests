@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using NServiceBus.Logging;
 using NServiceBus.SqlTransport.Tests.Shared;
 using Console = System.Console;
 
@@ -50,13 +51,15 @@ namespace NServiceBus.SqlTransport.Tests.Receiver
     {
         const int Interval = 500;
         static int messageCounter;
-        static long previousTimestamp; 
+        static long previousTimestamp;
+        static ILog log;
 
         public static void MessageReceived()
         {
             var newValue = Interlocked.Increment(ref messageCounter);
             if (newValue == 1)
             {
+                log = LogManager.GetLogger("Statistics");
                 Console.WriteLine("First message received.");
                 previousTimestamp = Stopwatch.GetTimestamp();
             }
@@ -68,7 +71,9 @@ namespace NServiceBus.SqlTransport.Tests.Receiver
 
                 var seconds = elapsed / Stopwatch.Frequency;
                 var throughput = Interval / seconds;
-                Console.WriteLine($"{DateTime.Now:s};{throughput};{newValue}");
+                var logMessage = $"{DateTime.Now:s};{throughput};{newValue}";
+                Console.WriteLine(logMessage);
+                log.Info(logMessage);
             }
         }
 
