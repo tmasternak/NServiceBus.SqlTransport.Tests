@@ -7,13 +7,13 @@ namespace NServiceBus.SqlTransport.Tests.Sender
 {
     class Program
     {
-        static async Task Main(string[] args)
+        static async Task Main(string[] a)
         {
             var configuration = new EndpointConfiguration(Shared.Configuration.SenderEndpointName);
 
             configuration.UseTransport<SqlServerTransport>()
                 .ConnectionString(() => Shared.Configuration.ConnectionString)
-                .Routing().RouteToEndpoint(typeof(TestCommand), Shared.Configuration.ReceiverEndpointName);
+                .Routing().RouteToEndpoint(typeof(TestCommand).Assembly, Shared.Configuration.ReceiverEndpointName);
 
             configuration.UsePersistence<InMemoryPersistence>();
 
@@ -23,12 +23,12 @@ namespace NServiceBus.SqlTransport.Tests.Sender
 
             var endpoint = await Endpoint.Start(configuration);
 
-            var commands = new (string, Func<Task>)[]
+            var commands = new (string, Func<string[], Task>)[]
             {
-                ("f|Fill the sender queue with 1000 msgs", async () =>
+                ("f|Fill the sender queue. Syntax: f <number of messages> <number of tasks>", async args =>
                 {
-                    var totalMessages = 1000;
-                    var numberOfTasks = 5;
+                    var totalMessages = args.Length > 0 ? int.Parse(args[0]) : 1000;
+                    var numberOfTasks = args.Length > 1 ? int.Parse(args[1]) : 5;
 
                     var tasks = Enumerable.Range(1, numberOfTasks).Select(async _ =>
                     {
@@ -39,6 +39,10 @@ namespace NServiceBus.SqlTransport.Tests.Sender
                     }).ToArray();
 
                     await Task.WhenAll(tasks);
+                }),
+                ("r|Reset receiver statistics", async args =>
+                {
+                    await endpoint.Send(new ResetCommand());
                 })
             };
 
@@ -46,18 +50,24 @@ namespace NServiceBus.SqlTransport.Tests.Sender
 
         }
 
-        static async Task Run((string, Func<Task>)[] commands)
+        static async Task Run((string, Func<string[], Task>)[] commands)
         {
             Console.WriteLine("Select command:");
             commands.Select(i => i.Item1).ToList().ForEach(Console.WriteLine);
 
             while (true)
             {
-                Console.Write("Press command <key>: ");
+                var commandLine = Console.ReadLine();
+                if (commandLine == null)
+                {
+                    continue;
+                }
 
-                var key = Console.ReadKey();
+                var parts = commandLine.Split(new[] {' '}, StringSplitOptions.RemoveEmptyEntries);
+                var key = parts.First().ToLowerInvariant();
+                var arguments = parts.Skip(1).ToArray();
 
-                var match = commands.Where(c => c.Item1.StartsWith(key.KeyChar)).ToArray();
+                var match = commands.Where(c => c.Item1.StartsWith(key)).ToArray();
 
                 if (match.Any())
                 {
@@ -65,7 +75,7 @@ namespace NServiceBus.SqlTransport.Tests.Sender
 
                     Console.WriteLine($"\nExecuting: {command.Item1.Split('|')[1]}");
 
-                    await command.Item2();
+                    await command.Item2(arguments);
 
                     Console.WriteLine("Done");
                 }
