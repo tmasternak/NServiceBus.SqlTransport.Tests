@@ -9,5 +9,7 @@ namespace NServiceBus.SqlTransport.Tests.Shared
         public static string ReceiverEndpointName = "SqlTransport-Test-Receiver";
 
         public static string ConnectionString = Environment.GetEnvironmentVariable("SqlTestsConnectionString");
+        
+        public static string AppInsightKey = Environment.GetEnvironmentVariable("SqlTestAppInsightKey");
     }
 }

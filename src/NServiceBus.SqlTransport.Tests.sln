@@ -9,6 +9,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NServiceBus.SqlTransport.Te
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NServiceBus.SqlTransport.Tests.Shared", "NServiceBus.SqlTransport.Tests.Shared\NServiceBus.SqlTransport.Tests.Shared.csproj", "{8BC25E3B-B705-42CE-9A53-DACEFF4AF88F}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NServiceBus.SqlTransport.Tests.Monitor", "NServiceBus.SqlTransport.Tests.Monitor\NServiceBus.SqlTransport.Tests.Monitor.csproj", "{84639D14-EDB5-4C31-8368-D65880B2A213}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -27,6 +29,10 @@ Global
 		{8BC25E3B-B705-42CE-9A53-DACEFF4AF88F}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{8BC25E3B-B705-42CE-9A53-DACEFF4AF88F}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{8BC25E3B-B705-42CE-9A53-DACEFF4AF88F}.Release|Any CPU.Build.0 = Release|Any CPU
+		{84639D14-EDB5-4C31-8368-D65880B2A213}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{84639D14-EDB5-4C31-8368-D65880B2A213}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{84639D14-EDB5-4C31-8368-D65880B2A213}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{84639D14-EDB5-4C31-8368-D65880B2A213}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
