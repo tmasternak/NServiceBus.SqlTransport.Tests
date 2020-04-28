@@ -18,6 +18,12 @@ namespace NServiceBus.SqlTransport.Tests.Monitor
             var telemetryClient = new TelemetryClient(configuration);
             telemetryClient.TrackTrace("Monitor started");
 
+            Console.WriteLine("Cleaning wait_time stats ...");
+
+            await ClearWaitTimeStats();
+
+            Console.WriteLine("Monitor started");
+
             while (true)
             {
                 var queueLengthMetric = await GetQueueLengthMetric(Configuration.ReceiverEndpointName);
@@ -28,8 +34,25 @@ namespace NServiceBus.SqlTransport.Tests.Monitor
 
                 telemetryClient.TrackMetric(pageLatchMetric);
 
+                telemetryClient.Flush();
+
+                Console.WriteLine($"[{DateTime.Now.ToLocalTime()}] Metrics pushed to AppInsights");
+
                 await Task.Delay(TimeSpan.FromSeconds(1));
 
+            }
+        }
+
+        static async Task ClearWaitTimeStats()
+        {
+            using (var connection = new SqlConnection(Configuration.ConnectionString))
+            {
+                await connection.OpenAsync();
+
+                using (var command = new SqlCommand("DBCC SQLPERF ('sys.dm_os_wait_stats', CLEAR); ", connection))
+                {
+                    await command.ExecuteNonQueryAsync();
+                }
             }
         }
 
@@ -58,7 +81,7 @@ namespace NServiceBus.SqlTransport.Tests.Monitor
 
         static async Task<MetricTelemetry> GetPageLatchStats()
         {
-            var query = $@"select wait_time_s from qpi.wait_stats where wait_type = 'PAGELATCH_EX'";
+            var query = $@"select max_wait_time_ms from qpi.wait_stats where wait_type = 'PAGELATCH_EX'";
 
             using (var connection = new SqlConnection(Configuration.ConnectionString))
             {
@@ -70,8 +93,8 @@ namespace NServiceBus.SqlTransport.Tests.Monitor
 
                     return new MetricTelemetry
                     {
-                        Name = "PAGELATCH_EX wait time [sec]",
-                        Sum = decimal.ToDouble((decimal)result),
+                        Name = "PAGELATCH_EX - max_wait_time_ms",
+                        Sum = result == null ? 0 :  decimal.ToDouble((decimal)result),
                         Count = 1
                     };
                 }
