@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Data.SqlClient;
+using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.ApplicationInsights;
 using Microsoft.ApplicationInsights.DataContracts;
@@ -30,16 +31,15 @@ namespace NServiceBus.SqlTransport.Tests.Monitor
 
                 telemetryClient.TrackMetric(queueLengthMetric);
 
-                var pageLatchMetric = await GetPageLatchStats();
+                var pageLatchMetrics = await GetPageLatchStats();
 
-                telemetryClient.TrackMetric(pageLatchMetric);
+                pageLatchMetrics.ToList().ForEach(m => telemetryClient.TrackMetric(m));
 
                 telemetryClient.Flush();
 
                 Console.WriteLine($"[{DateTime.Now.ToLocalTime()}] Metrics pushed to AppInsights");
 
                 await Task.Delay(TimeSpan.FromSeconds(1));
-
             }
         }
 
@@ -79,9 +79,10 @@ namespace NServiceBus.SqlTransport.Tests.Monitor
             }
         }
 
-        static async Task<MetricTelemetry> GetPageLatchStats()
+        static async Task<MetricTelemetry[]> GetPageLatchStats()
         {
-            var query = $@"select max_wait_time_ms from qpi.wait_stats where wait_type = 'PAGELATCH_EX'";
+            var query =
+                @"select waiting_tasks_count, wait_time_s, max_wait_time_ms, signal_wait_time_s from qpi.wait_stats where wait_type = 'PAGELATCH_EX'";
 
             using (var connection = new SqlConnection(Configuration.ConnectionString))
             {
@@ -89,14 +90,41 @@ namespace NServiceBus.SqlTransport.Tests.Monitor
 
                 using (var command = new SqlCommand(query, connection))
                 {
-                    var result = await command.ExecuteScalarAsync();
-
-                    return new MetricTelemetry
+                    var result = await command.ExecuteReaderAsync();
+                    if (result.HasRows)
                     {
-                        Name = "PAGELATCH_EX - max_wait_time_ms",
-                        Sum = result == null ? 0 :  decimal.ToDouble((decimal)result),
-                        Count = 1
-                    };
+                        result.Read();
+
+                        return new[]
+                        {
+                            new MetricTelemetry
+                            {
+                                Name = "PAGELATCH_EX - waiting_tasks_count",
+                                Sum = (long?) result[0] ?? 0,
+                                Count = 1
+                            },
+                            new MetricTelemetry
+                            {
+                                Name = "PAGELATCH_EX - wait_time_s",
+                                Sum = decimal.ToDouble((decimal) (result[1] ?? 0)),
+                                Count = 1
+                            },
+                            new MetricTelemetry
+                            {
+                                Name = "PAGELATCH_EX - max_wait_time_ms",
+                                Sum = (long?) result[2] ?? 0,
+                                Count = 1
+                            },
+                            new MetricTelemetry
+                            {
+                                Name = "PAGELATCH_EX - signal_wait_time_s",
+                                Sum = (long?) result[3] ?? 0,
+                                Count = 1
+                            }
+                        };
+                    }
+
+                    return new MetricTelemetry[0];
                 }
             }
         }
