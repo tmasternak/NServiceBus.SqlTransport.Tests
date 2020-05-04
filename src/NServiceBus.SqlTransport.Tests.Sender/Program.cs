@@ -26,7 +26,7 @@ namespace NServiceBus.SqlTransport.Tests.Sender
 
             var commands = new (string, Func<CancellationToken, string[], Task>)[]
             {
-                ("f|Fill the sender queue. Syntax: f <number of messages> <number of tasks>", async (ct, args) =>
+                ("f|Fill the sender queue. Syntax: f <number of messages> <number of tasks> <destination>", async (ct, args) =>
                 {
                     var totalMessages = args.Length > 0 ? int.Parse(args[0]) : 1000;
                     var numberOfTasks = args.Length > 1 ? int.Parse(args[1]) : 5;
@@ -35,13 +35,18 @@ namespace NServiceBus.SqlTransport.Tests.Sender
                     {
                         for (var i = 0; i < totalMessages / numberOfTasks; i++)
                         {
-                            await endpoint.Send(new TestCommand());
+                            var op = new SendOptions();
+                            if (args.Length > 2)
+                            {
+                                op.SetDestination(args[2]);
+                            }
+                            await endpoint.Send(new TestCommand(), op);
                         }
                     }).ToArray();
 
                     await Task.WhenAll(tasks);
                 }),
-                ("s|Start sending messages to the queue. Syntax: s <number of tasks>", async (ct, args) =>
+                ("s|Start sending messages to the queue. Syntax: s <number of tasks> <destination>", async (ct, args) =>
                 {
                     var numberOfTasks = args.Length > 0 ? int.Parse(args[0]) : 5;
 
@@ -51,7 +56,12 @@ namespace NServiceBus.SqlTransport.Tests.Sender
                     {
                         while (ct.IsCancellationRequested == false)
                         {
-                            await endpoint.Send(new TestCommand());
+                            var op = new SendOptions();
+                            if (args.Length > 2)
+                            {
+                                op.SetDestination(args[2]);
+                            }
+                            await endpoint.Send(new TestCommand(), op);
                         }
                     }).ToArray();
 
