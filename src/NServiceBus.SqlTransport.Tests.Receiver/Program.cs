@@ -14,7 +14,9 @@ namespace NServiceBus.SqlTransport.Tests.Receiver
     {
         static async Task Main(string[] args)
         {
-            var configuration = new EndpointConfiguration(Shared.Configuration.ReceiverEndpointName);
+            var endpointName = args.Length > 0 ? args[1] : Shared.Configuration.ReceiverEndpointName;
+
+            var configuration = new EndpointConfiguration(endpointName);
 
             configuration.UseTransport<SqlServerTransport>().ConnectionString(() => Shared.Configuration.ConnectionString);
 
