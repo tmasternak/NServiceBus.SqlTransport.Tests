@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using NServiceBus.SqlTransport.Tests.Shared;
 
@@ -23,9 +24,9 @@ namespace NServiceBus.SqlTransport.Tests.Sender
 
             var endpoint = await Endpoint.Start(configuration);
 
-            var commands = new (string, Func<string[], Task>)[]
+            var commands = new (string, Func<CancellationToken, string[], Task>)[]
             {
-                ("f|Fill the sender queue. Syntax: f <number of messages> <number of tasks>", async args =>
+                ("f|Fill the sender queue. Syntax: f <number of messages> <number of tasks>", async (ct, args) =>
                 {
                     var totalMessages = args.Length > 0 ? int.Parse(args[0]) : 1000;
                     var numberOfTasks = args.Length > 1 ? int.Parse(args[1]) : 5;
@@ -40,17 +41,32 @@ namespace NServiceBus.SqlTransport.Tests.Sender
 
                     await Task.WhenAll(tasks);
                 }),
-                ("r|Reset receiver statistics", async args =>
+                ("s|Start sending messages to the queue. Syntax: s <number of tasks>", async (ct, args) =>
+                {
+                    var numberOfTasks = args.Length > 0 ? int.Parse(args[0]) : 5;
+
+                    var ctSource = new CancellationTokenSource();
+
+                    var tasks = Enumerable.Range(1, numberOfTasks).Select(async _ =>
+                    {
+                        while (ct.IsCancellationRequested == false)
+                        {
+                            await endpoint.Send(new TestCommand());
+                        }
+                    }).ToArray();
+
+                    await Task.WhenAll(tasks);
+                }),
+                ("r|Reset receiver statistics", async (ct, args) =>
                 {
                     await endpoint.Send(new ResetCommand());
                 })
             };
 
             await Run(commands);
-
         }
 
-        static async Task Run((string, Func<string[], Task>)[] commands)
+        static async Task Run((string, Func<CancellationToken, string[], Task>)[] commands)
         {
             Console.WriteLine("Select command:");
             commands.Select(i => i.Item1).ToList().ForEach(Console.WriteLine);
@@ -75,7 +91,23 @@ namespace NServiceBus.SqlTransport.Tests.Sender
 
                     Console.WriteLine($"\nExecuting: {command.Item1.Split('|')[1]}");
 
-                    await command.Item2(arguments);
+                    using (var ctSource = new CancellationTokenSource())
+                    {
+                        var task = command.Item2(ctSource.Token, arguments);
+                        
+                        while (ctSource.IsCancellationRequested == false && task.IsCompleted == false)
+                        {
+                            if (Console.KeyAvailable && Console.ReadKey().Key == ConsoleKey.Enter)
+                            {
+                                ctSource.Cancel();
+                                break;
+                            }
+
+                            await Task.Delay(TimeSpan.FromMilliseconds(500));
+                        }
+
+                        await task;
+                    }
 
                     Console.WriteLine("Done");
                 }
