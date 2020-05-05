@@ -5,6 +5,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using NServiceBus.Logging;
+using NServiceBus.Pipeline;
 using NServiceBus.SqlTransport.Tests.Shared;
 using Console = System.Console;
 
@@ -14,11 +15,41 @@ namespace NServiceBus.SqlTransport.Tests.Receiver
     {
         static async Task Main(string[] args)
         {
-            var endpointName = args.Length > 0 ? args[1] : Shared.Configuration.ReceiverEndpointName;
+            var arguments = CommandLineOptions.Parse(args);
+
+            var endpointName = arguments.TryGetSingle("e") ?? Shared.Configuration.ReceiverEndpointName;
+
+            TestHandler.MaxDelay = arguments.TryGetMany<int>("d", 2, 2) ?? new[] { 0, 0 };
+            TestHandler.OutgoingMessages = arguments.TryGetSingle<int?>("o") ?? 0;
+
+            var processingTimeHistoBucketParam = arguments.TryGetSingle<int?>("pth") ?? 10;
+            var receiveIntervalHistoBucketParam = arguments.TryGetSingle<int?>("rih") ?? 10;
+
+            var dumpInterval = arguments.TryGetSingle<int?>("di") ?? 10000;
+
+            var processingTimeHisto = new Histogram(20, (int) (Stopwatch.Frequency / processingTimeHistoBucketParam));
+            var receiveIntervalHisto = new Histogram(20, (int)(Stopwatch.Frequency / receiveIntervalHistoBucketParam));
 
             var configuration = new EndpointConfiguration(endpointName);
 
-            configuration.UseTransport<SqlServerTransport>().ConnectionString(() => Shared.Configuration.ConnectionString);
+            var routing = configuration.UseTransport<SqlServerTransport>()
+                .ConnectionString(() => Shared.Configuration.ConnectionString)
+                .Routing();
+
+            routing.RouteToEndpoint(typeof(FollowUpMessage), Shared.Configuration.ReceiverEndpointName);
+
+            configuration.Conventions().DefiningMessagesAs(t => t == typeof(FollowUpMessage));
+            configuration.Pipeline.Register(new ReceiveBehavior(receiveIntervalHisto), "Processing interval histogram");
+
+            configuration.Pipeline.OnReceivePipelineCompleted(completed =>
+            {
+                Statistics.MessageProcessed();
+                var processingTimeTicks =
+                    (completed.CompletedAt - completed.StartedAt).TotalSeconds * Stopwatch.Frequency;
+
+                processingTimeHisto.NewValue((long)processingTimeTicks);
+                return Task.CompletedTask;
+            });
 
             configuration.UsePersistence<InMemoryPersistence>();
 
@@ -26,26 +57,114 @@ namespace NServiceBus.SqlTransport.Tests.Receiver
 
             var endpoint = await Endpoint.Start(configuration);
 
+            var tokenSource = new CancellationTokenSource();
+
+            var dumpStatsTask = Task.Run(async () =>
+            {
+                while (!tokenSource.IsCancellationRequested)
+                {
+                    await Task.Delay(dumpInterval, tokenSource.Token);
+                    receiveIntervalHisto.Dump("Receive Interval");
+                    processingTimeHisto.Dump("Processing Time");
+                }
+
+            }, tokenSource.Token);
+
             Console.WriteLine("Press <enter> to exit.");
             Console.ReadLine();
+
+            tokenSource.Cancel();
+
+            await dumpStatsTask;
+            await endpoint.Stop();
+        }
+    }
+
+    class ReceiveBehavior : Behavior<ITransportReceiveContext>
+    {
+        Histogram histogram;
+        long lastTimestamp;
+
+        public ReceiveBehavior(Histogram histogram)
+        {
+            this.histogram = histogram;
+        }
+
+        public override Task Invoke(ITransportReceiveContext context, Func<Task> next)
+        {
+            long previousTimestamp;
+            long nextTimestamp;
+            do
+            {
+                nextTimestamp = Stopwatch.GetTimestamp();
+                previousTimestamp = lastTimestamp;
+
+            } while (Interlocked.CompareExchange(ref lastTimestamp, nextTimestamp, previousTimestamp) != previousTimestamp);
+
+            histogram.NewValue(nextTimestamp - previousTimestamp);
+
+            return next();
         }
     }
 
     class TestHandler : IHandleMessages<TestCommand>
     {
-        public Task Handle(TestCommand message, IMessageHandlerContext context)
+        public static int[] MaxDelay;
+        public static int OutgoingMessages;
+
+        static Random random = new Random();
+
+        public async Task Handle(TestCommand message, IMessageHandlerContext context)
         {
-            Statistics.MessageReceived();
-            return Task.CompletedTask;
+            await Task.Delay(random.Next(MaxDelay[0], MaxDelay[1]));
+
+            for (var i = 0; i < OutgoingMessages; i++)
+            {
+                await context.Send(new FollowUpMessage()).ConfigureAwait(false);
+            }
         }
     }
 
-    class ResetHandler : IHandleMessages<ResetCommand>
+    class Histogram
     {
-        public Task Handle(ResetCommand message, IMessageHandlerContext context)
+        int numberOfBuckets;
+        long ticksPerBucket;
+        int[] buckets;
+
+        public Histogram(int numberOfBuckets, int ticksPerBucket)
         {
-            Statistics.Reset();
-            return Task.CompletedTask;
+            this.numberOfBuckets = numberOfBuckets;
+            this.ticksPerBucket = ticksPerBucket;
+            buckets = new int[numberOfBuckets + 1]; //last is overflow bucket
+        }
+
+        public void NewValue(long value)
+        {
+            var bucket = value / ticksPerBucket;
+
+            if (bucket > numberOfBuckets)
+            {
+                Interlocked.Increment(ref buckets[numberOfBuckets]);
+            }
+            else
+            {
+                Interlocked.Increment(ref buckets[bucket]);
+            }
+        }
+
+        public void Dump(string loggerName)
+        {
+            var log = LogManager.GetLogger(loggerName);
+
+            var logMessage = string.Join(Environment.NewLine, buckets.Select((v, i) =>
+            {
+                var threshold = (i * ticksPerBucket * 1000) / Stopwatch.Frequency; //in milliseconds
+                return $"{threshold}: {v}";
+            }));
+
+            Console.WriteLine(loggerName);
+            Console.WriteLine(logMessage);
+            log.Info(logMessage);
         }
     }
 
@@ -56,7 +175,7 @@ namespace NServiceBus.SqlTransport.Tests.Receiver
         static long previousTimestamp;
         static ILog log;
 
-        public static void MessageReceived()
+        public static void MessageProcessed()
         {
             var newValue = Interlocked.Increment(ref messageCounter);
             if (newValue == 1)

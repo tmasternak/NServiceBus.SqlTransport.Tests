@@ -13,6 +13,8 @@ namespace NServiceBus.SqlTransport.Tests.Monitor
     {
         static async Task Main(string[] args)
         {
+            var endpointName = args.Length > 0 ? args[0] : Shared.Configuration.ReceiverEndpointName;
+
             var configuration = TelemetryConfiguration.CreateDefault();
             configuration.InstrumentationKey = Configuration.AppInsightKey;
 
@@ -27,7 +29,7 @@ namespace NServiceBus.SqlTransport.Tests.Monitor
 
             while (true)
             {
-                var queueLengthMetric = await GetQueueLengthMetric(Configuration.ReceiverEndpointName);
+                var queueLengthMetric = await GetQueueLengthMetric(endpointName);
 
                 telemetryClient.TrackMetric(queueLengthMetric);
 
@@ -71,7 +73,7 @@ namespace NServiceBus.SqlTransport.Tests.Monitor
 
                     return new MetricTelemetry
                     {
-                        Name = "queue length",
+                        Name = $"queue length - {endpointName}",
                         Sum = (int) result,
                         Count = 1
                     };

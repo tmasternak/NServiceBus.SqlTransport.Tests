@@ -8,4 +8,8 @@
     public class ResetCommand
     {
     }
+
+    public class FollowUpMessage
+    {
+    }
 }
