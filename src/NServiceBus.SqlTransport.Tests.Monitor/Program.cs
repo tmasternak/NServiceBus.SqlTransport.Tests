@@ -60,25 +60,14 @@ namespace NServiceBus.SqlTransport.Tests.Monitor
 
         static async Task<MetricTelemetry> GetQueueLengthMetric(string endpointName)
         {
-            var query =
-                $@"SELECT isnull(cast(max([RowVersion]) - min([RowVersion]) + 1 AS int), 0) FROM [{endpointName}] WITH (nolock)";
-
-            using (var connection = new SqlConnection(Configuration.ConnectionString))
+            var queueLength = await QueueLengthMonitor.GetQueueLengthMetric(endpointName);
+           
+            return new MetricTelemetry
             {
-                await connection.OpenAsync();
-
-                using (var command = new SqlCommand(query, connection))
-                {
-                    var result = await command.ExecuteScalarAsync();
-
-                    return new MetricTelemetry
-                    {
-                        Name = $"queue length - {endpointName}",
-                        Sum = (int) result,
-                        Count = 1
-                    };
-                }
-            }
+                Name = $"queue length - {endpointName}",
+                Sum = (int) queueLength,
+                Count = 1
+            };
         }
 
         static async Task<MetricTelemetry[]> GetPageLatchStats()
