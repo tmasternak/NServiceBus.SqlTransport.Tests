@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using NServiceBus.Configuration.AdvancedExtensibility;
 using NServiceBus.Logging;
 using NServiceBus.Pipeline;
 using NServiceBus.SqlTransport.Tests.Shared;
@@ -25,12 +26,14 @@ namespace NServiceBus.SqlTransport.Tests.Receiver
             var processingTimeHistoBucketParam = arguments.TryGetSingle<int?>("pth") ?? 10;
             var receiveIntervalHistoBucketParam = arguments.TryGetSingle<int?>("rih") ?? 10;
 
-            var dumpInterval = arguments.TryGetSingle<int?>("di") ?? 10000;
+            var dumpInterval = arguments.TryGetSingle<int?>("di") ?? 100000;
 
             var processingTimeHisto = new Histogram(20, (int) (Stopwatch.Frequency / processingTimeHistoBucketParam));
             var receiveIntervalHisto = new Histogram(20, (int)(Stopwatch.Frequency / receiveIntervalHistoBucketParam));
 
             var configuration = new EndpointConfiguration(endpointName);
+
+            configuration.GetSettings().Set("SqlServer.DisableDelayedDelivery", true);
 
             var routing = configuration.UseTransport<SqlServerTransport>()
                 .ConnectionString(() => Shared.Configuration.ConnectionString)
