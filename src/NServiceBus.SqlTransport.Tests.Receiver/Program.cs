@@ -6,6 +6,7 @@ using System.Linq;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
+using NServiceBus.Configuration.AdvancedExtensibility;
 using NServiceBus.Logging;
 using NServiceBus.Pipeline;
 using NServiceBus.SqlTransport.Tests.Shared;
@@ -40,6 +41,8 @@ namespace NServiceBus.SqlTransport.Tests.Receiver
             var receiveIntervalHistogram = new Histogram(20, (int)(Stopwatch.Frequency / rih));
 
             var configuration = new EndpointConfiguration(endpointName);
+
+            configuration.GetSettings().Set("SqlServer.DisableDelayedDelivery", true);
 
             var routing = configuration.UseTransport<SqlServerTransport>()
                 .ConnectionString(() => Shared.Configuration.ConnectionString)
