@@ -7,7 +7,7 @@ using NServiceBus.SqlTransport.Tests.Shared;
 
 namespace NServiceBus.SqlTransport.Tests.Sender
 {
-    class Program
+    public class Program
     {
         static async Task Main(string[] a)
         {

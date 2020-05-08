@@ -1,7 +1,9 @@
 ﻿using System;
-using System.Collections.Generic;
+using System.CommandLine;
+using System.CommandLine.DragonFruit;
 using System.Diagnostics;
 using System.Linq;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using NServiceBus.Logging;
@@ -13,22 +15,29 @@ namespace NServiceBus.SqlTransport.Tests.Receiver
 {
     class Program
     {
-        static async Task Main(string[] args)
+        static Task Main(string[] args)
         {
-            var arguments = CommandLineOptions.Parse(args);
+            var rootCommand = new RootCommand("run a receiver endpoint");
+                
+            rootCommand.ConfigureFromMethod(typeof(Program).GetMethod(nameof(RunEndpoint), BindingFlags.Static | BindingFlags.NonPublic));
 
-            var endpointName = arguments.TryGetSingle("e") ?? Shared.Configuration.ReceiverEndpointName;
+            return rootCommand.InvokeAsync(args);
+        }
 
-            TestHandler.MaxDelay = arguments.TryGetMany<int>("d", 2, 2) ?? new[] { 0, 0 };
-            TestHandler.OutgoingMessages = arguments.TryGetSingle<int?>("o") ?? 0;
+        static async Task RunEndpoint(
+            string endpointName = Shared.Configuration.ReceiverEndpointName,
+            int maxDelay = 0,
+            int minDelay = 0,
+            int outgoingMessages = 0,
+            int pth = 10,
+            int rih = 10,
+            int dumpInterval = 10000)
+        {
+            TestHandler.MaxDelay = new[] {minDelay, maxDelay};
+            TestHandler.OutgoingMessages = outgoingMessages;
 
-            var processingTimeHistoBucketParam = arguments.TryGetSingle<int?>("pth") ?? 10;
-            var receiveIntervalHistoBucketParam = arguments.TryGetSingle<int?>("rih") ?? 10;
-
-            var dumpInterval = arguments.TryGetSingle<int?>("di") ?? 10000;
-
-            var processingTimeHisto = new Histogram(20, (int) (Stopwatch.Frequency / processingTimeHistoBucketParam));
-            var receiveIntervalHisto = new Histogram(20, (int)(Stopwatch.Frequency / receiveIntervalHistoBucketParam));
+            var processingTimeHistogram = new Histogram(20, (int) (Stopwatch.Frequency / pth));
+            var receiveIntervalHistogram = new Histogram(20, (int)(Stopwatch.Frequency / rih));
 
             var configuration = new EndpointConfiguration(endpointName);
 
@@ -39,7 +48,7 @@ namespace NServiceBus.SqlTransport.Tests.Receiver
             routing.RouteToEndpoint(typeof(FollowUpMessage), Shared.Configuration.ReceiverEndpointName);
 
             configuration.Conventions().DefiningMessagesAs(t => t == typeof(FollowUpMessage));
-            configuration.Pipeline.Register(new ReceiveBehavior(receiveIntervalHisto), "Processing interval histogram");
+            configuration.Pipeline.Register(new ReceiveBehavior(receiveIntervalHistogram), "Processing interval histogram");
 
             configuration.Pipeline.OnReceivePipelineCompleted(completed =>
             {
@@ -47,7 +56,7 @@ namespace NServiceBus.SqlTransport.Tests.Receiver
                 var processingTimeTicks =
                     (completed.CompletedAt - completed.StartedAt).TotalSeconds * Stopwatch.Frequency;
 
-                processingTimeHisto.NewValue((long)processingTimeTicks);
+                processingTimeHistogram.NewValue((long)processingTimeTicks);
                 return Task.CompletedTask;
             });
 
@@ -63,9 +72,16 @@ namespace NServiceBus.SqlTransport.Tests.Receiver
             {
                 while (!tokenSource.IsCancellationRequested)
                 {
-                    await Task.Delay(dumpInterval, tokenSource.Token);
-                    receiveIntervalHisto.Dump("Receive Interval");
-                    processingTimeHisto.Dump("Processing Time");
+                    try
+                    {
+                        await Task.Delay(dumpInterval, tokenSource.Token);
+                        receiveIntervalHistogram.Dump("Receive Interval");
+                        processingTimeHistogram.Dump("Processing Time");
+                    }
+                    catch (TaskCanceledException)
+                    {
+                        break;
+                    }
                 }
 
             }, tokenSource.Token);

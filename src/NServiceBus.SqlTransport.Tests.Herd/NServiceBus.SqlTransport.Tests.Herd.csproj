@@ -1,18 +1,17 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>netcoreapp3.1</TargetFramework>
-    <LanguageVersion>latest</LanguageVersion>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="NServiceBus.SqlServer" Version="6.0.0" />
     <PackageReference Include="System.CommandLine.DragonFruit" Version="0.3.0-alpha.20253.1" />
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\NServiceBus.SqlTransport.Tests.Shared\NServiceBus.SqlTransport.Tests.Shared.csproj" />
+    <ProjectReference Include="..\NServiceBus.SqlTransport.Tests.Receiver\NServiceBus.SqlTransport.Tests.Receiver.csproj" />
+    <ProjectReference Include="..\NServiceBus.SqlTransport.Tests.Sender\NServiceBus.SqlTransport.Tests.Sender.csproj" />
   </ItemGroup>
 
 </Project>
