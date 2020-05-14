@@ -6,6 +6,9 @@ using System.Linq;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.ApplicationInsights;
+using Microsoft.ApplicationInsights.DataContracts;
+using Microsoft.ApplicationInsights.Extensibility;
 using NServiceBus.Configuration.AdvancedExtensibility;
 using NServiceBus.Logging;
 using NServiceBus.Pipeline;
@@ -14,7 +17,7 @@ using Console = System.Console;
 
 namespace NServiceBus.SqlTransport.Tests.Receiver
 {
-    class Program
+    public class Program
     {
         static Task Main(string[] args)
         {
@@ -53,9 +56,12 @@ namespace NServiceBus.SqlTransport.Tests.Receiver
             configuration.Conventions().DefiningMessagesAs(t => t == typeof(FollowUpMessage));
             configuration.Pipeline.Register(new ReceiveBehavior(receiveIntervalHistogram), "Processing interval histogram");
 
+            var statistics = new Statistics();
+            statistics.Initialize(endpointName);
+
             configuration.Pipeline.OnReceivePipelineCompleted(completed =>
             {
-                Statistics.MessageProcessed();
+                statistics.MessageProcessed();
                 var processingTimeTicks =
                     (completed.CompletedAt - completed.StartedAt).TotalSeconds * Stopwatch.Frequency;
 
@@ -71,23 +77,29 @@ namespace NServiceBus.SqlTransport.Tests.Receiver
 
             var tokenSource = new CancellationTokenSource();
 
-            var dumpStatsTask = Task.Run(async () =>
-            {
-                while (!tokenSource.IsCancellationRequested)
-                {
-                    try
-                    {
-                        await Task.Delay(dumpInterval, tokenSource.Token);
-                        receiveIntervalHistogram.Dump("Receive Interval");
-                        processingTimeHistogram.Dump("Processing Time");
-                    }
-                    catch (TaskCanceledException)
-                    {
-                        break;
-                    }
-                }
+            var dumpStatsTask = Task.CompletedTask;
 
-            }, tokenSource.Token);
+            if (dumpInterval > 0)
+            {
+                dumpStatsTask = Task.Run(async () =>
+                {
+                    while (!tokenSource.IsCancellationRequested)
+                    {
+                        try
+                        {
+                            await Task.Delay(dumpInterval, tokenSource.Token);
+                            receiveIntervalHistogram.Dump("Receive Interval");
+                            processingTimeHistogram.Dump("Processing Time");
+                        }
+                        catch (TaskCanceledException)
+                        {
+                            break;
+                        }
+                    }
+
+                }, tokenSource.Token);
+            }
+
 
             Console.WriteLine("Press <enter> to exit.");
             Console.ReadLine();
@@ -190,11 +202,24 @@ namespace NServiceBus.SqlTransport.Tests.Receiver
     class Statistics
     {
         const int Interval = 500;
-        static int messageCounter;
-        static long previousTimestamp;
-        static ILog log;
+        int messageCounter;
+        long previousTimestamp;
+        TelemetryClient telemetryClient;
 
-        public static void MessageProcessed()
+        static ILog log;
+        string receiverName;
+
+        public void Initialize(string receiverName)
+        {
+            var configuration = TelemetryConfiguration.CreateDefault();
+            configuration.InstrumentationKey = Shared.Configuration.AppInsightKey;
+
+            telemetryClient = new TelemetryClient(configuration);
+
+            this.receiverName = receiverName;
+        }
+
+        public void MessageProcessed()
         {
             var newValue = Interlocked.Increment(ref messageCounter);
             if (newValue == 1)
@@ -211,15 +236,20 @@ namespace NServiceBus.SqlTransport.Tests.Receiver
 
                 var seconds = elapsed / Stopwatch.Frequency;
                 var throughput = Interval / seconds;
+
+                var throughputValue = new MetricTelemetry
+                {
+                    Name = $"{receiverName} - Throughput [msg/sec]",
+                    Sum = throughput,
+                    Count = 1
+                };
+
+                telemetryClient.TrackMetric(throughputValue);
+
                 var logMessage = $"{DateTime.Now:s};{throughput};{newValue}";
                 Console.WriteLine(logMessage);
                 log.Info(logMessage);
             }
-        }
-
-        public static void Reset()
-        {
-            messageCounter = 0;
         }
     }
 }

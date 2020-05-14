@@ -59,9 +59,10 @@ namespace NServiceBus.SqlTransport.Tests.Sender
 
         static Command CreateChildCommand(string methodName, string name)
         {
+            var methodInfo = typeof(Program).GetMethod(methodName, BindingFlags.Static | BindingFlags.NonPublic);
+            
             var childCommand = new Command(name);
-            childCommand.ConfigureFromMethod(typeof(Program).GetMethod(nameof(methodName),
-                BindingFlags.Static | BindingFlags.NonPublic));
+            childCommand.ConfigureFromMethod(methodInfo);
             return childCommand;
         }
 
@@ -144,19 +145,28 @@ namespace NServiceBus.SqlTransport.Tests.Sender
             await Task.WhenAll(new List<Task>(senders) {monitor});
         }
 
-        static async Task Send(int numberOfTasks = 5, string destination = null)
+        static async Task Send(int numberOfTasks = 5, int sendDelayMs = 0, string destination = null)
         {
             var tasks = Enumerable.Range(1, numberOfTasks).Select(async _ =>
             {
                 while (ct.IsCancellationRequested == false)
                 {
-                    var op = new SendOptions();
-                    if (destination != null)
+                    try
                     {
-                        op.SetDestination(destination);
-                    }
+                        var op = new SendOptions();
+                        if (destination != null)
+                        {
+                            op.SetDestination(destination);
+                        }
 
-                    await endpoint.Send(new TestCommand(), op);
+                        await endpoint.Send(new TestCommand(), op);
+
+                        await Task.Delay(TimeSpan.FromMilliseconds(sendDelayMs), ct);
+                    }
+                    catch (TaskCanceledException)
+                    {
+                        break;
+                    }
                 }
             }).ToArray();
 
