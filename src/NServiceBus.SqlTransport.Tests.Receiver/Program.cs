@@ -21,6 +21,7 @@ namespace NServiceBus.SqlTransport.Tests.Receiver
 
             TestHandler.MaxDelay = arguments.TryGetMany<int>("d", 2, 2) ?? new[] { 0, 0 };
             TestHandler.OutgoingMessages = arguments.TryGetSingle<int?>("o") ?? 0;
+            var destination = arguments.TryGetSingle<string>("dst");
 
             var processingTimeHistoBucketParam = arguments.TryGetSingle<int?>("pth") ?? 10;
             var receiveIntervalHistoBucketParam = arguments.TryGetSingle<int?>("rih") ?? 10;
@@ -36,7 +37,10 @@ namespace NServiceBus.SqlTransport.Tests.Receiver
                 .ConnectionString(() => Shared.Configuration.ConnectionString)
                 .Routing();
 
-            routing.RouteToEndpoint(typeof(FollowUpMessage), Shared.Configuration.ReceiverEndpointName);
+            if (destination != null)
+            {
+                routing.RouteToEndpoint(typeof(TestCommand), destination);
+            }
 
             configuration.Conventions().DefiningMessagesAs(t => t == typeof(FollowUpMessage));
             configuration.Pipeline.Register(new ReceiveBehavior(receiveIntervalHisto), "Processing interval histogram");
@@ -120,7 +124,7 @@ namespace NServiceBus.SqlTransport.Tests.Receiver
 
             for (var i = 0; i < OutgoingMessages; i++)
             {
-                await context.Send(new FollowUpMessage()).ConfigureAwait(false);
+                await context.Send(new TestCommand()).ConfigureAwait(false);
             }
         }
     }
