@@ -30,34 +30,58 @@ namespace NServiceBus.SqlTransport.Tests.Monitor
 
             Configuration.ConnectionString = args[0];
 
-            var configuration = TelemetryConfiguration.CreateDefault();
-            configuration.InstrumentationKey = Configuration.AppInsightKey;
+            TelemetryClient telemetryClient = null;
 
-            var telemetryClient = new TelemetryClient(configuration);
-            telemetryClient.TrackTrace("Monitor started");
+            if (Configuration.AppInsightKey != null)
+            {
+                var configuration = TelemetryConfiguration.CreateDefault();
+                configuration.InstrumentationKey = Configuration.AppInsightKey;
+                telemetryClient = new TelemetryClient(configuration);
+            }
 
-            Console.WriteLine("Cleaning wait_time stats ...");
+            if (args.Contains("--reset"))
+            {
+                Console.WriteLine("Cleaning wait_time stats ...");
+                await ClearWaitTimeStats();
+            }
 
-            await ClearWaitTimeStats();
+            telemetryClient?.TrackTrace("Monitor started");
 
             Console.WriteLine("Monitor started");
+
+            DateTime RoundUp(DateTime dt, TimeSpan d)
+            {
+                return new DateTime((dt.Ticks + d.Ticks - 1) / d.Ticks * d.Ticks, dt.Kind);
+            }
+
+            var interval = TimeSpan.FromSeconds(30); // Report granulatity is 1 minute, must be reporting more often to ensure every minute has atleast one sample.
+            var now = DateTime.UtcNow;
+            var next = RoundUp(now, interval);
+            var delay = next - now;
+            await Task.Delay(delay); // Align clock
 
             while (true)
             {
                 try
                 {
-                    await foreach (var item in GetQueueLengthsMetric())
+                    async Task Invoke()
                     {
-                        telemetryClient.TrackMetric(item);
+                        var pageLatchMetrics = await GetPageLatchStats();
+
+                        if (telemetryClient != null)
+                        {
+                            pageLatchMetrics.ToList().ForEach(m => telemetryClient.TrackMetric(m));
+                            await foreach (var item in GetQueueLengthsMetric()) telemetryClient.TrackMetric(item);
+                            telemetryClient.Flush();
+                        }
                     }
-
-                    var pageLatchMetrics = await GetPageLatchStats();
-
-                    pageLatchMetrics.ToList().ForEach(m => telemetryClient.TrackMetric(m));
-
-                    telemetryClient.Flush();
-
-                    await Task.Delay(TimeSpan.FromSeconds(10));
+                    now = DateTime.UtcNow; // Keeps invocation spot on the interval
+                    next += interval;
+                    delay = next - now;
+                    await Task.WhenAll(
+                        Task.Delay(delay),
+                        Invoke()
+                        );
                 }
                 catch (Exception ex)
                 {
@@ -127,18 +151,45 @@ namespace NServiceBus.SqlTransport.Tests.Monitor
                 {
                     Name = "PAGELATCH_EX - waiting_tasks_count (delta)",
                     Sum = delta.waiting_tasks_count,
-                    Count = 1
+                    Count = 1                                                   // Maybe  this could just the time period like the ticks?
                 },
                 new MetricTelemetry
                 {
                     Name = "PAGELATCH_EX - wait_time_s (delta)",
                     Sum = delta.wait_time_s,
-                    Count = 1
+                    Count = 1,
                 },
                 new MetricTelemetry
                 {
                     Name = "PAGELATCH_EX - signal_wait_time_s (delta)",
                     Sum = delta.signal_wait_time_s,
+                    Count = 1
+                },
+
+                // From DELTA RAW
+                new MetricTelemetry
+                {
+                    Name = "PAGELATCH_EX - waiting_tasks_count_raw (delta)",
+                    Sum = delta.waiting_tasks_count_raw,
+                    Count = 1
+                },
+                new MetricTelemetry
+                {
+                    Name = "PAGELATCH_EX - wait_time_s_raw (delta)",
+                    Sum = delta.wait_time_s_raw,
+                    Count = 1
+                },
+                new MetricTelemetry
+                {
+                    Name = "PAGELATCH_EX - signal_wait_time_s_raw (delta)",
+                    Sum = delta.signal_wait_time_s_raw,
+                    Count = 1
+                },
+
+                new MetricTelemetry
+                {
+                    Name = "PAGELATCH_EX - delta_s (delta)",
+                    Sum = delta.ticks/(double)Stopwatch.Frequency,
                     Count = 1
                 },
                 
